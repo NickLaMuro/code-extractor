@@ -7,6 +7,7 @@ sys.path.append(os.path.join(code_extractor_dir, "git-filter-repo"))
 
 import subprocess
 import shutil as FileUtils
+import argparse as OptParse
 import re as Regexp
 import git_filter_repo
 
@@ -15,15 +16,40 @@ class CodeExtractor(object):
   def run():
     CodeExtractor.Runner().extract()
 
-  class Config(object):
-    def __init__(self, config_file = 'extractions.yml'):
-      yaml_config = self._dumb_yaml_parse(config_file)
-      self.config = yaml_config
 
-      if "upstream_branch" not in self.config:
-        self.config["upstream_branch"] = "master"
+  class Config(object):
+    def __init__(self):
+      self.config = self.parse()
+      self._dumb_yaml_parse(self.config["extraction_yml"])
 
       self._validate()
+
+    def parse(self):
+      # Resources for help with `argparse`:
+      #
+      #   - formatter_class:     https://stackoverflow.com/a/5464440/3574689
+      #   - append v.s. nargs:   https://stackoverflow.com/a/15753721/3574689
+      #   - has_key deprecated:  https://stackoverflow.com/a/1323426/3574689
+      #
+      desc      = "Extracts code from from one repository to another preserving history"
+      yml_help  = "config file to load and will append to or overwrite options passed in via CLI"
+      formatter = OptParse.HelpFormatter
+      opt       = OptParse.ArgumentParser(description     = desc,
+                                          formatter_class = lambda prog: formatter(prog,max_help_position=40))
+
+      opt.add_argument("--name",            help = "the name newly extracted codebase")
+      opt.add_argument("--upstream",        help = "URL to the upstream source")
+      opt.add_argument("--upstream-name",   help = "the ORG/REPO name of the ")
+      opt.add_argument("--upstream-branch", help = "the branch to be pulled from", default = "master")
+      opt.add_argument("--extractions",     help = "path(s) to extract from source", action = "append")
+      opt.add_argument("--extraction-yml",  help = yml_help, default = "extractions.yml")
+
+      # Trick (hack?) to return the Dict from the `Namespace` that is returned
+      # from argparse
+      #
+      #   https://stackoverflow.com/a/16878364/3574689
+      #
+      return vars(opt.parse_args())
 
     def _validate(self):
       required_keys = ["name", "upstream", "upstream_name", "extractions"]
@@ -39,7 +65,7 @@ class CodeExtractor(object):
     will be removed in the future, but for now leaving it in.
     """
     def _dumb_yaml_parse(self, config_file):
-      yaml_config        = {}
+      yaml_config        = self.config
       current_collection = None
       key_val_regexp     = Regexp.compile(r"^:?([a-z_]*):([\"']?.*[\"']?)?$")
       array_item_regexp  = Regexp.compile(r"^\s{2}?- (.+)$")
@@ -49,7 +75,8 @@ class CodeExtractor(object):
         if key_val:
           if key_val.group(2) == "":
             current_collection = key_val.group(1)
-            yaml_config[key_val.group(1)] = []
+            if current_collection not in yaml_config or yaml_config[current_collection] == None:
+              yaml_config[current_collection] = []
           else:
             current_collection = None
             yaml_config[key_val.group(1)] = Regexp.sub("[\"'\s]", "", key_val.group(2))
