@@ -1,0 +1,168 @@
+#!/usr/bin/env python3
+
+import os, sys
+
+code_extractor_dir = os.path.dirname(os.path.realpath(__file__))
+sys.path.append(os.path.join(code_extractor_dir, "git-filter-repo"))
+
+import subprocess
+import shutil as FileUtils
+import re as Regexp
+import git_filter_repo
+
+class CodeExtractor(object):
+  @staticmethod
+  def run():
+    CodeExtractor.Runner().extract()
+
+  class Config(object):
+    def __init__(self, config_file = 'extractions.yml'):
+      yaml_config = self._dumb_yaml_parse(config_file)
+      self.config = yaml_config
+
+      if "upstream_branch" not in self.config:
+        self.config["upstream_branch"] = "master"
+
+      self._validate()
+
+    def _validate(self):
+      required_keys = ["name", "upstream", "upstream_name", "extractions"]
+      filterer      = lambda k: k not in self.config or self.config[k] == None
+      missing       = list(filter(filterer, required_keys))
+
+      if len(missing) > 0:
+        raise SystemExit(str(missing) + " key(s) missing")
+
+    """
+    Barebones legacy parsing for the previously used extraction.yml config (and
+    not requiring to have the yaml python library installed).  Most likely this
+    will be removed in the future, but for now leaving it in.
+    """
+    def _dumb_yaml_parse(self, config_file):
+      yaml_config        = {}
+      current_collection = None
+      key_val_regexp     = Regexp.compile(r"^:?([a-z_]*):([\"']?.*[\"']?)?$")
+      array_item_regexp  = Regexp.compile(r"^\s{2}?- (.+)$")
+
+      for line in open(config_file):
+        key_val = key_val_regexp.match(line)
+        if key_val:
+          if key_val.group(2) == "":
+            current_collection = key_val.group(1)
+            yaml_config[key_val.group(1)] = []
+          else:
+            current_collection = None
+            yaml_config[key_val.group(1)] = Regexp.sub("[\"'\s]", "", key_val.group(2))
+
+          continue
+
+        array_item = array_item_regexp.match(line)
+        if array_item and current_collection:
+          yaml_config[current_collection].append(Regexp.sub("[\"'\s]", "", array_item.group(1)))
+
+      return yaml_config
+
+
+  class GitProject(object):
+    def __init__(self, name, url = None):
+      self.name    = name
+      self.url     = url
+      self.git_dir = None
+
+    def init(self):
+      if self.git_dir == None:
+        self.git_dir = self.name
+
+      if os.path.isdir(self.git_dir):
+        FileUtils.rmtree(self.git_dir)
+
+      print("Initializing git dir…")
+      subprocess.run(["git", "init", "-b", "master", self.git_dir])
+
+    def clone_to(self, destination, origin_name = "upstream"):
+      if self.git_dir == None:
+        self.git_dir = destination
+
+      if os.path.isdir(self.git_dir):
+        if subprocess.getstatusoutput("git -C %s status" % self.git_dir)[0] > 0:
+          raise SystemExit("Not a git dir!")
+      else:
+        print("Cloning…")
+        subprocess.run(["git", "clone", "--origin", origin_name, self.url, self.git_dir])
+
+    def extract_branch(self, source_branch, new_branch, extractions):
+      print("Extracting Branch…")
+
+      self.new_branch    = new_branch
+      self.source_branch = source_branch
+
+      subprocess.run(["git", "checkout", self.source_branch], cwd=self.git_dir)
+      subprocess.run(["git", "fetch", "upstream"], cwd=self.git_dir)
+      subprocess.run(["git", "rebase", "upstream/master"], cwd=self.git_dir)
+
+      branches = subprocess.check_output(["git", "branch"], cwd=self.git_dir).split()
+
+      if self.new_branch in branches:
+        subprocess.run(["git", "branch", "-D", new_branch], cwd=self.git_dir)
+
+      subprocess.run(["git", "checkout", "-b", self.new_branch], cwd=self.git_dir)
+      subprocess.run(["git", "rm", "-r"] + extractions, cwd=self.git_dir)
+      subprocess.run(["git", "commit", "-m", "Extract %s" % self.name], cwd=self.git_dir)
+
+    def remove_remote(self):
+      subprocess.run("git remote rm upstream".split(), cwd=self.git_dir)
+
+    def remove_tags(self):
+      print('removing tags')
+      tags = subprocess.check_output(["git", "tag"], cwd=self.git_dir)
+      for tag in tags.split():
+        print("Removing tag %s" % tag)
+        subprocess.run(["git", "tag", "-d ", tag], cwd=self.git_dir)
+
+    def filter_repo(self, extractions, source_project):
+      self.upstream_name = source_project.name
+      code_extraction_args = [
+        "--source", source_project.git_dir,
+        "--target", self.git_dir,
+        "--refs",   source_project.source_branch
+      ]
+
+      for path in extractions:
+        code_extraction_args.append("--path")
+        code_extraction_args.append(path)
+
+      repo_filter_args = git_filter_repo.FilteringOptions.parse_args(code_extraction_args)
+      filter           = git_filter_repo.RepoFilter(repo_filter_args, commit_callback=self.append_commit_message)
+
+      print("running filter...")
+      filter.run()
+
+    def append_commit_message(self, commit, metadata):
+      append_text  = b"\n\n(transferred from "
+      append_text += bytes(self.upstream_name, encoding="raw_unicode_escape")
+      append_text += b"@" + commit.original_id + b")"
+
+      commit.message = commit.message + append_text
+
+  class Runner(object):
+    def __init__(self, config = None):
+      self.config = config.config if config != None else CodeExtractor.Config().config
+
+      self.extractions       = self.config["extractions"]
+      self.extraction_branch = "extract_%s" % self.config["name"]
+      self.upstream_branch   = self.config["upstream_branch"]
+      self.upstream_dirname  = "%s_source" % self.config["upstream_name"].split("/")[-1]
+      self.source_project    = CodeExtractor.GitProject(self.config["upstream_name"], self.config["upstream"])
+      self.target_project    = CodeExtractor.GitProject(self.config["name"],          self.config["upstream"])
+
+    def extract(self):
+      print(self.config)
+
+      self.target_project.init()
+      self.source_project.clone_to(self.upstream_dirname)
+      self.source_project.extract_branch(self.upstream_branch, self.extraction_branch, self.extractions)
+      self.target_project.filter_repo(self.extractions, self.source_project)
+
+
+if __name__ == '__main__':
+  CodeExtractor.run()
