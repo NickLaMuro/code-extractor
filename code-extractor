@@ -70,6 +70,7 @@ class CodeExtractor(object):
       current_collection = None
       key_val_regexp     = Regexp.compile(r"^:?([a-z_]*):([\"']?.*[\"']?)?$")
       array_item_regexp  = Regexp.compile(r"^\s{2}?- (.+)$")
+      quote_remove       = "^[\"'](.*)[\"']$"
 
       for line in open(config_file):
         key_val = key_val_regexp.match(line)
@@ -80,13 +81,15 @@ class CodeExtractor(object):
               yaml_config[current_collection] = []
           else:
             current_collection = None
-            yaml_config[key_val.group(1)] = Regexp.sub("[\"'\s]", "", key_val.group(2))
+            new_val = Regexp.sub(quote_remove, r"\1", key_val.group(2).strip()).strip()
+            yaml_config[key_val.group(1)] = new_val
 
           continue
 
         array_item = array_item_regexp.match(line)
         if array_item and current_collection:
-          yaml_config[current_collection].append(Regexp.sub("[\"'\s]", "", array_item.group(1)))
+          new_val = Regexp.sub(quote_remove, r"\1", array_item.group(1).strip()).strip()
+          yaml_config[current_collection].append(new_val)
 
       return yaml_config
 
