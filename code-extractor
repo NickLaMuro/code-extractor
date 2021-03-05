@@ -107,7 +107,7 @@ class CodeExtractor(object):
       if os.path.isdir(self.git_dir):
         FileUtils.rmtree(self.git_dir)
 
-      print("Initializing git dir…")
+      print("\nInitializing git dir…")
       subprocess.run(["git", "init", "-b", "master", self.git_dir])
 
     def clone_to(self, destination, origin_name = "upstream"):
@@ -122,7 +122,7 @@ class CodeExtractor(object):
         subprocess.run(["git", "clone", "--origin", origin_name, self.url, self.git_dir])
 
     def extract_branch(self, source_branch, new_branch, extractions):
-      print("Extracting Branch…")
+      print("\nExtracting Branch…")
 
       self.new_branch    = new_branch
       self.source_branch = source_branch
