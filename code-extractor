@@ -134,7 +134,7 @@ class CodeExtractor(object):
 
       branches = subprocess.check_output(["git", "branch"], cwd=self.git_dir).split()
 
-      if self.new_branch in branches:
+      if bytes(self.new_branch, encoding="raw_unicode_escape") in branches:
         subprocess.run(["git", "branch", "-D", new_branch], cwd=self.git_dir)
 
       subprocess.run(["git", "checkout", "-b", self.new_branch], cwd=self.git_dir)
