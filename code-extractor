@@ -121,11 +121,12 @@ class CodeExtractor(object):
         print("Cloning…")
         subprocess.run(["git", "clone", "--origin", origin_name, self.url, self.git_dir])
 
-    def extract_branch(self, source_branch, new_branch, extractions):
+    def extract_branch(self, source_branch, new_branch, extractions, extract_name=None):
       print("\nExtracting Branch…")
 
       self.new_branch    = new_branch
       self.source_branch = source_branch
+      extract_suffix     = extract_name if extract_name else self.name
 
       subprocess.run(["git", "checkout", self.source_branch], cwd=self.git_dir)
       subprocess.run(["git", "fetch", "upstream"], cwd=self.git_dir)
@@ -138,7 +139,7 @@ class CodeExtractor(object):
 
       subprocess.run(["git", "checkout", "-b", self.new_branch], cwd=self.git_dir)
       subprocess.run(["git", "rm", "-r"] + extractions, cwd=self.git_dir)
-      subprocess.run(["git", "commit", "-m", "Extract %s" % self.name], cwd=self.git_dir)
+      subprocess.run(["git", "commit", "-m", "Extract %s" % extract_suffix], cwd=self.git_dir)
 
     def remove_remote(self):
       subprocess.run("git remote rm upstream".split(), cwd=self.git_dir)
@@ -194,10 +195,11 @@ class CodeExtractor(object):
 
     def extract(self):
       print(self.config)
+      extract_name = self.config["extract_name"] if "extract_name" in self.config else None
 
       self.target_project.init()
       self.source_project.clone_to(self.upstream_dirname)
-      self.source_project.extract_branch(self.upstream_branch, self.extraction_branch, self.extractions)
+      self.source_project.extract_branch(self.upstream_branch, self.extraction_branch, self.extractions, extract_name = extract_name)
       self.target_project.filter_repo(self.extractions, self.source_project)
 
       if "extra_cmds" in self.config:
