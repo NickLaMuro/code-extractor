@@ -6,6 +6,7 @@ code_extractor_dir = os.path.dirname(os.path.realpath(__file__))
 sys.path.append(os.path.join(code_extractor_dir, "git-filter-repo"))
 
 import subprocess
+import shlex as Shellwords
 import shutil as FileUtils
 import argparse as OptParse
 import re as Regexp
@@ -171,6 +172,12 @@ class CodeExtractor(object):
 
       commit.message = commit.message + append_text
 
+    def run_extra_cmds(self, extra_cmds):
+      print("\nRunning extra commands…")
+      for cmd in extra_cmds:
+        subprocess.run(Shellwords.split(cmd), cwd=self.git_dir)
+
+
   class Runner(object):
     def __init__(self, config = None):
       self.config = config.config if config != None else CodeExtractor.Config().config
@@ -189,6 +196,9 @@ class CodeExtractor(object):
       self.source_project.clone_to(self.upstream_dirname)
       self.source_project.extract_branch(self.upstream_branch, self.extraction_branch, self.extractions)
       self.target_project.filter_repo(self.extractions, self.source_project)
+
+      if "extra_cmds" in self.config:
+        self.target_project.run_extra_cmds(self.config["extra_cmds"])
 
 
 if __name__ == '__main__':
