@@ -44,6 +44,7 @@ class CodeExtractor(object):
       opt.add_argument("--upstream-branch", help = "the branch to be pulled from", default = "master")
       opt.add_argument("--extractions",     help = "path(s) to extract from source", action = "append")
       opt.add_argument("--extraction-yml",  help = yml_help, default = "extractions.yml")
+      opt.add_argument("--renames",         help = "path(s) to rename", action = "append")
 
       # Trick (hack?) to return the Dict from the `Namespace` that is returned
       # from argparse
@@ -151,7 +152,7 @@ class CodeExtractor(object):
         print("Removing tag %s" % tag)
         subprocess.run(["git", "tag", "-d ", tag], cwd=self.git_dir)
 
-    def filter_repo(self, extractions, source_project):
+    def filter_repo(self, config, source_project):
       self.upstream_name = source_project.name
       code_extraction_args = [
         "--source", source_project.git_dir,
@@ -159,9 +160,13 @@ class CodeExtractor(object):
         "--refs",   source_project.source_branch
       ]
 
-      for path in extractions:
+      for path in config["extractions"]:
         code_extraction_args.append("--path")
         code_extraction_args.append(path)
+
+      for rename in config["renames"]:
+        code_extraction_args.append("--path-rename")
+        code_extraction_args.append(rename)
 
       repo_filter_args = git_filter_repo.FilteringOptions.parse_args(code_extraction_args)
       filter           = git_filter_repo.RepoFilter(repo_filter_args, commit_callback=self.append_commit_message)
@@ -186,7 +191,6 @@ class CodeExtractor(object):
     def __init__(self, config = None):
       self.config = config.config if config != None else CodeExtractor.Config().config
 
-      self.extractions       = self.config["extractions"]
       self.extraction_branch = "extract_%s" % self.config["name"]
       self.upstream_branch   = self.config["upstream_branch"]
       self.upstream_dirname  = "%s_source" % self.config["upstream_name"].split("/")[-1]
@@ -199,8 +203,8 @@ class CodeExtractor(object):
 
       self.target_project.init()
       self.source_project.clone_to(self.upstream_dirname)
-      self.source_project.extract_branch(self.upstream_branch, self.extraction_branch, self.extractions, extract_name = extract_name)
-      self.target_project.filter_repo(self.extractions, self.source_project)
+      self.source_project.extract_branch(self.upstream_branch, self.extraction_branch, self.config["extractions"], extract_name = extract_name)
+      self.target_project.filter_repo(self.config, self.source_project)
 
       if "extra_cmds" in self.config:
         self.target_project.run_extra_cmds(self.config["extra_cmds"])
